@@ -13,10 +13,12 @@ Repositori ini berisi *source code* untuk aplikasi web interaktif yang memungkin
 ![Java](https://img.shields.io/badge/java-%23ED8B00.svg?style=for-the-badge&logo=openjdk&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 ![Hugging Face](https://img.shields.io/badge/Hugging%20Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=000)
+![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
 
 * **Bahasa Markup & Desain:** HTML, CSS (untuk efek *glassmorphism* dan pendaran lampu neon).
 * **Bahasa Pemrograman Logika:** Java dan Python untuk mengelola interaksi, logika deteksi, serta pemrosesan data.
 * **Platform & Deployment:** Hugging Face Spaces sebagai lingkungan *hosting* dan integrasi model pendeteksi pose.
+* **Containerization:** Docker digunakan untuk membungkus aplikasi agar dapat berjalan dengan konsisten di berbagai lingkungan pengembangan secara lokal.
 
 ## 📸 Pratinjau Antarmuka
 Berikut adalah tampilan aplikasi Via HugginFace
