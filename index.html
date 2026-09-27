@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Smart Night Lamp</title>
+    
+    <!-- Library MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        /* BACKGROUND KAMAR TIDUR & EFEK CAHAYA */
+        body { 
+            margin: 0; padding: 0; min-height: 100vh; overflow: hidden;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background-image: url('https://images.unsplash.com/photo-1540518614846-7eded433c457?q=80&w=2000&auto=format&fit=crop'); /* Gambar Kamar Tidur Estetik */
+            background-size: cover; background-position: center;
+            font-family: sans-serif;
+        }
+
+        /* Lapisan Gelap/Terang Ruangan (Overlay) */
+        .room-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(4, 9, 20, 0.95); /* Sangat gelap pekat saat lampu mati */
+            transition: background-color 0.8s ease-in-out;
+            z-index: 1;
+        }
+        body.lamp-is-on .room-overlay {
+            background-color: rgba(4, 9, 20, 0.1); /* Ruangan menjadi terang benderang saat lampu hidup */
+        }
+
+        /* KONTEN UTAMA DI ATAS BACKGROUND */
+        .content-layer {
+            position: relative; z-index: 10;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 20px; width: 100%; height: 100vh;
+        }
+
+        /* TOMBOL MULAI MINIMALIS */
+        #startBtn { 
+            background: linear-gradient(135deg, #38bdf8, #8b5cf6); 
+            color: white; border: none; padding: 16px 45px; 
+            font-size: 16px; border-radius: 50px; cursor: pointer; 
+            font-weight: bold; box-shadow: 0 0 25px rgba(139, 92, 246, 0.6); 
+            transition: all 0.3s ease; text-transform: uppercase; letter-spacing: 2px;
+            position: absolute; /* Agar posisinya tepat di tengah layar sebelum diklik */
+        }
+        #startBtn:hover { transform: translateY(-4px); box-shadow: 0 0 40px rgba(139, 92, 246, 0.9); }
+
+        /* --- VISUALISASI LAMPU & TALI --- */
+        .lamp-container { 
+            filter: drop-shadow(0 20px 20px rgba(0,0,0,0.8)); 
+            display: none; /* Disembunyikan sebelum kamera aktif */
+        }
+
+        #nightLampSvg { width: 140px; height: 170px; overflow: visible; }
+
+        /* Warna Lampu Default (Mati) */
+        .lamp-glow { fill: rgba(253, 224, 71, 0); filter: blur(35px); transition: fill 0.6s ease; }
+        .lamp-shade { fill: #94a3b8; transition: fill 0.6s ease; }
+        .lamp-stand { fill: #475569; }
+        .lamp-base { fill: #1e293b; }
+
+        /* Warna Lampu Hidup */
+        body.lamp-is-on .lamp-glow { fill: rgba(253, 224, 71, 0.95); } /* Cahaya memancar kuat */
+        body.lamp-is-on .lamp-shade { fill: #fef08a; } /* Kap lampu bersinar */
+
+        /* Animasi Efek Tarik Tali */
+        @keyframes pullString {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(20px); } /* Tali ditarik ke bawah 20px */
+            100% { transform: translateY(0); }
+        }
+        .pull-active { animation: pullString 0.4s cubic-bezier(0.25, 1, 0.5, 1); }
+
+        /* --- FRAME KAMERA & EFEK DETEKSI --- */
+        .canvas-wrapper {
+            padding: 6px; border-radius: 20px;
+            background: rgba(255, 255, 255, 0.05); 
+            backdrop-filter: blur(10px);
+            transition: background 0.4s ease, box-shadow 0.4s ease, transform 0.3s ease;
+            display: none; /* Disembunyikan sebelum kamera aktif */
+        }
+
+        /* Frame Glow Kuning (Menghidupkan) */
+        .canvas-wrapper.glow-yellow {
+            background: linear-gradient(135deg, #facc15, #f59e0b);
+            box-shadow: 0 0 50px rgba(250, 204, 21, 0.6);
+            transform: scale(1.03);
+        }
+        
+        /* Frame Glow Pink (Mematikan) */
+        .canvas-wrapper.glow-pink {
+            background: linear-gradient(135deg, #f472b6, #db2777);
+            box-shadow: 0 0 50px rgba(244, 114, 182, 0.6);
+            transform: scale(1.03);
+        }
+
+        .canvas-container { 
+            position: relative; width: 440px; height: 330px;
+            border-radius: 14px; overflow: hidden; background-color: #000;
+        }
+
+        #videoElement, #outputCanvas {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%; object-fit: cover;
+            transform: scaleX(-1);
+        }
+        #outputCanvas { z-index: 2; background-color: transparent; }
+    </style>
+</head>
+<body> 
+
+    <!-- Efek Gelap/Terang Kamar -->
+    <div class="room-overlay"></div>
+
+    <!-- HANYA TOMBOL, LAMPU, DAN KAMERA -->
+    <div class="content-layer">
+        
+        <button id="startBtn">Aktifkan Smart Lamp</button> 
+
+        <!-- Lampu Tidur SVG -->
+        <div class="lamp-container" id="lampUI">
+            <svg id="nightLampSvg" viewBox="0 0 100 120" xmlns="http://www.w3.org/2000/svg">
+                <!-- Pancaran Cahaya Glow -->
+                <circle class="lamp-glow" cx="50" cy="50" r="65" />
+                <!-- Kap Lampu -->
+                <polygon class="lamp-shade" points="25,15 75,15 90,65 10,65" />
+                <!-- Tiang -->
+                <rect class="lamp-stand" x="46" y="65" width="8" height="45" />
+                <!-- Tapak Bawah -->
+                <rect class="lamp-base" x="20" y="110" width="60" height="10" rx="5" />
+                
+                <!-- Tali & Bandul (Yang ditarik) -->
+                <g id="pullCordGroup">
+                    <line x1="75" y1="65" x2="75" y2="92" stroke="#cbd5e1" stroke-width="2.5" />
+                    <circle cx="75" cy="94" r="4" fill="#f8fafc" />
+                </g>
+            </svg>
+        </div>
+        
+        <!-- Frame Kamera untuk AI -->
+        <div class="canvas-wrapper" id="canvasFrame">
+            <div class="canvas-container"> 
+                <video id="videoElement" autoplay playsinline webkit-playsinline muted></video> 
+                <canvas id="outputCanvas" width="440" height="330"></canvas> 
+            </div> 
+        </div>
+
+    </div>
+    
+    <script> 
+        const videoElement = document.getElementById('videoElement'); 
+        const canvasElement = document.getElementById('outputCanvas'); 
+        const canvasCtx = canvasElement.getContext('2d'); 
+        const startBtn = document.getElementById('startBtn'); 
+        const lampUI = document.getElementById('lampUI');
+        const pullCordGroup = document.getElementById('pullCordGroup');
+        const canvasFrame = document.getElementById('canvasFrame');
+        
+        let isLampOn = false; 
+        
+        // --- LOGIKA CERDAS DETEKSI POSE ---
+        function analyzePoses(multiHandLandmarks) {
+            if (!multiHandLandmarks || multiHandLandmarks.length === 0) return null;
+            const lm = multiHandLandmarks[0];
+
+            const indexUp = lm[8].y < lm[6].y;
+            const middleUp = lm[12].y < lm[10].y;
+            const ringUp = lm[16].y < lm[14].y;
+            const pinkyUp = lm[20].y < lm[18].y;
+            
+            const fingersUpCount = [indexUp, middleUp, ringUp, pinkyUp].filter(Boolean).length;
+            
+            if (fingersUpCount >= 3) return 'palm'; // 🖐️ Telapak Terbuka
+            if (indexUp && middleUp && !ringUp && !pinkyUp) return 'victory'; // ✌️ Pose Dua Jari
+
+            return null; 
+        }
+
+        // --- FUNGSI EFEK ANIMASI TALI & CAHAYA KAMAR ---
+        function triggerLampToggle(turnOn) {
+            // Animasi Tarik Tali
+            pullCordGroup.classList.remove('pull-active');
+            void pullCordGroup.offsetWidth; // Trigger reflow agar animasi bisa diulang
+            pullCordGroup.classList.add('pull-active');
+
+            if (turnOn) {
+                isLampOn = true;
+                document.body.classList.add('lamp-is-on'); // Terangkan Kamar
+            } else {
+                isLampOn = false;
+                document.body.classList.remove('lamp-is-on'); // Gelapkan Kamar
+            }
+        }
+
+        // --- SETUP AI MEDIAPIPE ---
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`}); 
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 }); 
+        
+        hands.onResults((results) => { 
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height); 
+            
+            const detectedPose = analyzePoses(results.multiHandLandmarks);
+
+            // Pengaturan Visual Tangan & Bingkai Kamera
+            let skeletonColor = 'rgba(255, 255, 255, 0.3)'; // Rangka redup saat tidak ada pose
+            let landmarkColor = 'rgba(255, 255, 255, 0.6)'; 
+            
+            canvasFrame.className = 'canvas-wrapper'; // Reset glow bingkai
+
+            if (detectedPose === 'palm') {
+                skeletonColor = '#facc15'; // Tangan menyala Kuning Terang
+                landmarkColor = '#fef08a';
+                canvasFrame.classList.add('glow-yellow'); // Frame memancarkan cahaya kuning
+                
+                if (!isLampOn) triggerLampToggle(true);
+            } 
+            else if (detectedPose === 'victory') {
+                skeletonColor = '#f472b6'; // Tangan menyala Pink
+                landmarkColor = '#fbcfe8';
+                canvasFrame.classList.add('glow-pink'); // Frame memancarkan cahaya pink
+                
+                if (isLampOn) triggerLampToggle(false);
+            }
+
+            // Render Titik & Garis Tangan
+            if (results.multiHandLandmarks) { 
+                results.multiHandLandmarks.forEach((landmarks) => { 
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: skeletonColor, lineWidth: 6}); 
+                    drawLandmarks(canvasCtx, landmarks, {color: landmarkColor, lineWidth: 2, radius: 4}); 
+                }); 
+            }
+        }); 
+
+        // --- SISTEM KAMERA WEBRTC ---
+        startBtn.addEventListener('click', async () => { 
+            startBtn.textContent = "MEMUAT...";
+            
+            try { 
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 440, height: 330 } }); 
+                videoElement.srcObject = stream; 
+                
+                videoElement.onloadedmetadata = () => { 
+                    videoElement.play(); 
+                    
+                    // Sembunyikan tombol, Munculkan Lampu & Kamera
+                    startBtn.style.display = 'none'; 
+                    lampUI.style.display = 'block';
+                    canvasFrame.style.display = 'block';
+                    
+                    async function processFrame() { 
+                        if (!videoElement.paused && !videoElement.ended) { 
+                            await hands.send({image: videoElement}); 
+                        } 
+                        requestAnimationFrame(processFrame); 
+                    } 
+                    processFrame(); 
+                }; 
+            } catch (error) { 
+                alert("KAMERA DITOLAK!\nKlik ikon Gembok di ujung kiri kolom URL, lalu izinkan Kamera (Allow).\n\nError: " + error.message); 
+                startBtn.textContent = "AKTIFKAN KAMERA";
+            } 
+        }); 
+    </script>
+</body>
+</html>
